@@ -1,0 +1,34 @@
+name: Publish today's post
+
+on:
+  schedule:
+    - cron: "30 11-13 * * *"  # backup: hourly 19:30–21:30 SGT; --window posts only items due in the last 3 h
+  workflow_dispatch:          # cron-job.org calls this at 19:30 SGT every day
+    inputs:
+      catch_up:
+        description: "Also post approved items from earlier days that were missed"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write          # lets the job push post.json back
+
+concurrency: publish       # runs queue up, never post side by side
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          MEDIA_BASE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: python3 publish.py next ${{ github.event_name == 'schedule' && '--window' || (inputs.catch_up && '--catch-up' || '') }}
+      - name: Record posted items
+        if: always()           # record what went out even if a later item or the missed-check failed
+        run: |
+          git config user.name "SG Driving publisher"
+          git config user.email "actions@users.noreply.github.com"
+          git add queue
+          git diff --cached --quiet || { git commit -m "Posted $(date -u +%F)"; git push; }
